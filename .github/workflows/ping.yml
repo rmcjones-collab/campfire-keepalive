@@ -1,0 +1,51 @@
+name: Keep the Treeline Relay awake
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ping
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping the relay status endpoint
+        run: |
+          code=$(curl -s -o /tmp/status.json -w "%{http_code}" --max-time 40 "https://campfire-treeline.pplx.app/port/8097/api/status" || true)
+          echo "HTTP $code"
+          if [ "$code" = "200" ]; then
+            python3 - <<'PY'
+          import json
+          s = json.load(open("/tmp/status.json"))
+          print("last tick:", s.get("last_tick"), "| paused:", s.get("paused"), "| replies:", s.get("replies"), "| posts:", s.get("posts"), "| errors:", s.get("errors"))
+          PY
+          else
+            echo "Relay did not answer with 200 (it may be waking up); the next ping is in five minutes."
+          fi
+
+      # GitHub disables cron workflows after 60 days without repository activity, so leave a small daily footprint.
+      - name: Daily heartbeat commit
+        if: github.event_name == 'schedule'
+        run: |
+          git clone --depth 1 "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" repo
+          cd repo
+          today=$(date -u +%F)
+          if [ "$(cat HEARTBEAT 2>/dev/null)" != "$today" ]; then
+            echo "$today" > HEARTBEAT
+            git config user.name "keepalive-bot"
+            git config user.email "keepalive-bot@users.noreply.github.com"
+            git add HEARTBEAT
+            git commit -q -m "heartbeat $today"
+            git push -q
+            echo "heartbeat committed for $today"
+          else
+            echo "heartbeat already recorded today"
+          fi
