@@ -22,7 +22,8 @@ concurrency:
 jobs:
   ping:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    # Worst case is 3 x 40 s curl + 2 x 20 s sleep = 160 s; leave room so a hung relay exits 1, not cancelled.
+    timeout-minutes: 5
     steps:
       - name: Ping the relay status endpoint
         # Fails unless the relay answers 200, is not paused and ticked recently, so green means healthy.
